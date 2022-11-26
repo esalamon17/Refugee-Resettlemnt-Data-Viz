@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/topojson.v3.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    <style>
+        body {
+            text-align: center;
+            margin-left: 50px;
+            margin-right: 50px;
+        }
+
+        h2,
+        h3 {
+            align-items: center;
+        }
+
+        p {
+            width: 700px;
+            margin: auto;
+            text-align: center;
+            align-items: center;
+            font-size: 16px;
+
+
+        }
+
+        .state {
+            fill: lightgrey;
+        }
+
+        .outline {
+            fill: none;
+            stroke: black;
+            stroke-width: 1px;
+        }
+
+        .graticule {
+            fill: none;
+            stroke: grey;
+            stroke-width: 1px;
+        }
+
+        .tooltip {
+            pointer-events: none;
+        }
+
+        .slidecontainer {
+            display: inline-block;
+            width: 900px;
+
+        }
+
+        .slider {
+            appearance: none;
+            width: 100%;
+            background: grey;
+            border-radius: 10px;
+            height: 20px;
+            opacity: 0.7;
+            transition: opacity .2s;
+            stroke-width: 1px;
+            float: left;
+        }
+
+        .slider::-webkit-slider-thumb {
+            cursor: pointer;
+        }
+
+        #year {
+            font-size: larger;
+            font-weight: bold;
+        }
+
+        #allYears {
+            display: inline;
+            float: right;
+            border-radius: 7px;
+        }
+
+        button {
+            cursor: pointer;
+            border: 1px solid black;
+
+        }
+
+        .refugee {
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: black;
+            color: white;
+
+        }
+
+        #zoomIn,
+        #zoomOut {
+            width: 30px;
+            height: 30px;
+        }
+
+        .node rect {
+            fill-opacity: .9;
+            shape-rendering: crispEdges;
+        }
+
+        .node text {
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+        .link {
+            fill: none;
+            stroke-opacity: .4;
+        }
+
+        .tooltip {
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>INFO 3300 Project 2: Assessing Refugees Entering the US</h2>
+    <h3>Ariela Gettig, Michelle Hui, Eliza Salamon, Samuel Qian</h3>
+
+    <p id='intro'>Stigma surrounding refugees and migrants is a very present aspect of American politics.
+        To counter those abstractions and generalizations, we used geocoded <a
+            href='https://www.refugeeresettlementdata.com/'>data</a>
+        from the
+        Office of Refugee Resettlement and the Bureau for Population, Refugees, and Resettlement
+        to show the specifics of refugee placement between 1975 and 2018. We urge viewers to notice patterns
+        in continental refugees over time and in settlement location. The data represents the resettlement
+        of just under one million refugees from 94 distinct countries to all 50 states.
+
+        Take a look and think about the visibility of refugees in your location as coworkers, neighbors, and friends.
+    </p>
+    <h3>Visualization 1: Mapping Resettlement</h3>
+    <svg id="map" width=1200 height=800></svg>
+    <div style='float:left; margin-left:200px;'>
+        <div style='margin-top: 50px;'>
+            <div style="float: left;"><button id="allYears" type="button">All Years</button></div>
+            <div id="year" style="margin-left: 800px">
+                Year: <span id="numYears"></span>
+            </div>
+        </div>
+
+        <div class="slidecontainer" style='margin-top: 10px;'>
+            <input id="yearSlider" type="range" class="slider" style="display: inline;">
+        </div>
+
+        <div class="ticks" id="ticks"></div>
+    </div>
+    <div id='zoomButtons' style='float:right;margin-right:200px;'>
+        <button id='zoomIn' type='button'>+</button>
+        <button id='zoomOut' type='button'>-</button>
+    </div>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <h3>Visualization 2: Sankey Resettlement Diagram</h3>
+    <svg id="map2" width="1200" height="1000" style='margin-top: 20px;'></svg>
+
+    <script>
+        // setup
+        const visual1 = d3.select('#map');
+        const width1 = visual1.attr('width');
+        const height1 = visual1.attr('height');
+        const margins1 = { top: 10, right: 80, left: 80, bottom: 30 };
+        const mapWidth1 = width1 - margins1.right - margins1.left - 300;
+        const mapHeight1 = height1 - margins1.top - margins1.bottom;
+        const mapArea1 = visual1.append("g")
+            .attr("transform", "translate(" + margins1.left + "," + margins1.top + ")")
+            .attr('width', mapWidth1);
+
+        const svg2 = d3.select("#map2");
+        const width2 = svg2.attr("width");
+        const height2 = svg2.attr("height");
+        const margin2 = { top: 20, right: 20, bottom: 20, left: 20 };
+        const mapWidth2 = width2 - margin2.left - margin2.right;
+        const mapHeight2 = height2 - margin2.top - margin2.bottom;
+        const map = svg2.append("g")
+            .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+        // Sankey
+        let sankey = d3.sankey()
+            .nodeAlign(d3.sankeyCenter)
+            .nodeWidth(30)
+            .nodePadding(15)
+            .size([mapWidth2, mapHeight2]);
+
+        const requestData = async function () {
+            const topo = await d3.json('us-smaller.json');
+
+            var states = topojson.feature(topo, topo.objects.states);
+            var statesMesh = topojson.mesh(topo, topo.objects.states);
+            var projection = d3.geoAlbersUsa().fitSize([mapWidth1, mapHeight1], states);
+            var path = d3.geoPath().projection(projection);
+
+            // US Topojson
+            let statePaths = mapArea1.selectAll("path.state").data(states.features)
+                .join("path")
+                .attr("class", "state")
+                .attr("d", path)
+                .style('fill', "none");
+
+            let stateMesh = mapArea1.append("path").datum(statesMesh)
+                .attr("class", "outline")
+                .attr("d", path)
+                .style('stroke', 'black')
+                .style('stroke-width', '1');
+
+            // get refugee data
+            const refugee_data = await d3.csv('final_data.csv');
+
+            // calculate position of refugee on map
+            refugee_data.forEach(d => {
+                d.position = projection([d.longitude, d.latitude]);
+            })
+
+            // set radius scale based on number of refugees
+            const count_extent = d3.extent(refugee_data, d => parseInt(d.refugees));
+            const countScale = d3.scaleLinear().domain(count_extent).range([3.5, 20]);
+
+            // convert years to ints
+            const years = d3.extent(refugee_data, d => parseInt(d.year));
+
+            // ticks for year slider
+            let ticks = d3.select("#ticks");
+
+            // dynamically create ticks for year slider
+            for (let i = years[0]; i < years[1] - 5; i += 5) {
+                ticks.append("span").style("margin-right", "4.315em")
+                    .text(i).style("margin-right", "5")
+            }
+            ticks.append("span")
+                .text("2015")
+                .style("margin-right", "1.5em")
+            ticks.append("span")
+                .text("2018")
+
+            // input slider to filter refugees by year
+            let yearSlider = d3.select("#yearSlider");
+
+            // current year of data or "All"
+            let currentYear = d3.select("#numYears");
+
+            // initial year (average of range)
+            const initialYear = Math.floor((years[1] + years[0]) / 2);
+
+            // set min/max and step size of year slider
+            yearSlider.attr("min", years[0]);
+            yearSlider.attr("max", years[1]);
+            yearSlider.attr('value', initialYear);
+            yearSlider.attr("step", 1);
+
+            // Initialize years to "All"
+            currentYear.text("All");
+
+            let continents = ['Asia', 'Europe', 'Africa', 'Americas', 'Oceania']
+
+            // color scale for continents
+            let continentsColors = d3.scaleOrdinal().domain(continents)
+                .range(d3.schemeCategory10);
+
+            // all refugees
+            let refugees = mapArea1.selectAll("circle.refugee").data(refugee_data)
+                .join("circle")
+                .attr("class", "refugee")
+                .attr("r", d => countScale(d.refugees))
+                .style("opacity", .5)
+                .style("fill", d => continentsColors(d.continent))
+                .attr("cx", d => d.position[0])
+                .attr("cy", d => d.position[1]);
+
+            //enable mouseover
+            let mouseover = mapArea1.append('g').attr('id', 'mousover')
+                .attr('width', 200)
+                .attr('height', 100);
+
+            // mouseover/out for refugees
+            refugees.on("mouseover", function (d) {
+                mouseover.attr("visibility", "");
+                updateMouse(data = d3.select(this).datum());
+            });
+
+            refugees.on("mouseout", function () {
+                mouseover.attr("visibility", "hidden");
+            })
+
+            // update popup box with refugee information
+            let updateMouse = function (data = null, e = null) {
+                let transform_var = 1;
+                if (e !== null) {
+                    transform_var = e.transform.k
+                }
+                mouseover.html("");
+                mouseover.attr('x', data.position[0]);
+                mouseover.attr('y', data.position[1]);
+
+                let count = parseInt(data.refugees);
+                let singular = 'refugees';
+                if (count === 1) { singular = 'refugee' }
+                let origin = data.country;
+                let city = data.city;
+                let state = data.state;
+
+                var sen1 = count + ' ' + singular + ' arrived to ';
+                var sen2 = city + ", " + state
+                var sen3 = ' from ' + origin;
+                mouseover.append('rect')
+                    .attr('id', 'mouseover box')
+                    .attr('x', data.position[0])
+                    .attr('y', data.position[1])
+                    .attr('fill', '#D3D3D3')
+                    .attr('width', 150 / transform_var)
+                    .attr('height', 75 / transform_var);
+                mouseover.append('text')
+                    .attr('class', 'mouse lines')
+                    .attr('x', data.position[0] + 10 / transform_var)
+                    .attr('y', data.position[1] + 20 / transform_var)
+                    .text(sen1)
+                    .style('fill', 'black')
+                    .style('font-size', Math.round(14 / transform_var));
+                mouseover.append('text')
+                    .attr('class', 'mouse lines')
+                    .attr('x', data.position[0] + 10 / transform_var)
+                    .attr('y', data.position[1] + 40 / transform_var)
+                    .text(sen2)
+                    .style('fill', 'black')
+                    .style('font-size', Math.round(14 / transform_var));
+                mouseover.append('text')
+                    .attr('class', 'mouse lines')
+                    .attr('x', data.position[0] + 10 / transform_var)
+                    .attr('y', data.position[1] + 60 / transform_var)
+                    .text(sen3)
+                    .style('fill', 'black')
+                    .style('font-size', Math.round(14 / transform_var));
+            }
+
+            // filter functions for years
+            yearSlider.on("change", function () { filterYears(this.value); })
+
+            let filterYears = (year) => {
+                currentYear.text(year);
+
+                refugees.attr("visibility", d => {
+                    if (d.year == year) {
+                        return "visible"
+                    }
+                    else {
+                        return "hidden"
+                    };
+                });
+                refugees.style("pointer-events", d => {
+                    if (d.year == year) {
+                        return "auto";
+                    }
+                    else {
+                        return "none";
+                    };
+                })
+            };
+
+            //created legend
+            let legend = visual1.append('g')
+                .attr('id', 'legend');
+
+            legend.append('rect')
+                .attr('x', width1 - 340)
+                .attr('y', 260)
+                .attr('width', 200)
+                .attr('height', 200)
+                .attr('fill', 'white');
+
+            legend.selectAll('circle')
+                .data(continents)
+                .join("circle")
+                .attr('cx', width1 - 300)
+                .attr('cy', function (d, i) { return 300 + i * 30 })
+                .attr('r', '10')
+                .attr('fill', d => continentsColors(d));
+
+            legend.selectAll('text')
+                .data(continents)
+                .join('text')
+                .attr('x', width1 - 280)
+                .attr('y', function (d, i) { return 305 + i * 30 })
+                .text(d => d)
+                .style('fill', 'black');
+
+
+            // Show all years button
+            const allYears = d3.select("#allYears");
+
+            // reset all years
+            allYears.on("click", function () { refugees.attr("visibility", "visible"); currentYear.text("All"); })
+
+
+            // pan + zoom
+            const zoomIn = d3.select('#zoomIn');
+            const zoomOut = d3.select('#zoomOut');
+
+            let zoom = d3.zoom().on("zoom", plotZoomed)
+                .scaleExtent([1, 5])
+                .extent([[margins1.left, margins1.top], [width1, mapHeight1]]);
+
+            visual1.call(zoom);
+
+            zoomIn.on("click", function () {
+                zoom.scaleBy(visual1.transition().duration(50), 1.2);
+
+            })
+            zoomOut.on("click", function () {
+                zoom.scaleBy(visual1.transition().duration(50), 0.8);
+            })
+
+            function plotZoomed(event) {
+                mapArea1.attr("transform", event.transform);
+                stateMesh.style("stroke-width", 1 / event.transform.k);
+                refugees.attr("r", d => countScale(d.refugees) / (event.transform.k * .7));
+                refugees.on("mouseover", function (d) {
+                    mouseover.attr("visibility", "");
+                    updateMouse(data = d3.select(this).datum(), e = event);
+                });
+            }
+
+
+            // Visualization 2
+
+            const continentStateData = refugee_data;
+
+            //dictionary with key: (continent, region) and value: refugees    
+            var continentRegionMappings = {};
+
+            //dictionary with key: (region, state) and value: refugees
+            var regionStateMappings = {};
+
+            var regions = new Set();
+
+            var states = new Set();
+
+            // get countr for refugees from continents to regions and regions to states
+            for (let i = 0; i < continentStateData.length; i++) {
+
+                regions.add(continentStateData[i].Region);
+                states.add(continentStateData[i].state);
+
+                const continent = continentStateData[i].continent
+                let continentRegionKey = [continent, continentStateData[i].Region];
+                let regionStateKey = [continentStateData[i].Region, continentStateData[i].state];
+                if (continentRegionKey in continentRegionMappings) {
+                    continentRegionMappings[continentRegionKey] += parseFloat(continentStateData[i].refugees);
+                }
+                else {
+                    continentRegionMappings[continentRegionKey] = parseFloat(continentStateData[i].refugees);
+                }
+                if (regionStateKey in regionStateMappings) {
+                    regionStateMappings[regionStateKey][continent] += parseFloat(continentStateData[i].refugees);
+                }
+                else {
+                    let counts = {};
+                    continents.forEach(e => counts[e] = 0)
+                    regionStateMappings[regionStateKey] = counts
+                    regionStateMappings[regionStateKey][continent] = parseFloat(continentStateData[i].refugees);
+                }
+            }
+            console.log(regionStateMappings)
+
+            // graph containing nodes and links
+            // nodes are continents, regions, and states
+            // links have a source node and target node and number of refugees
+            let graph = { "nodes": [], "links": [] };
+
+            continents = Array.from(continents);
+            regions = Array.from(regions);
+            states = Array.from(states);
+
+            let nodelist = [];
+
+            // Add nodes to graph
+            for (let i = 0; i < continents.length; i++) {
+                graph.nodes.push({ "name": continents[i] });
+                nodelist.push(continents[i]);
+            }
+            for (let i = 0; i < regions.length; i++) {
+                graph.nodes.push({ "name": regions[i] });
+                nodelist.push(regions[i]);
+            }
+            for (let i = 0; i < states.length; i++) {
+                graph.nodes.push({ "name": states[i] });
+                nodelist.push(states[i]);
+            }
+
+            // Add links to graph
+            for (let [key, value] of Object.entries(continentRegionMappings)) {
+                let continentRegion = key.split(",")
+                graph.links.push({ "source": continentRegion[0], "target": continentRegion[1], "value": value, "continent": continentRegion[0] });
+            }
+
+            for (let [key, value] of Object.entries(regionStateMappings)) {
+                const regionState = key.split(",");
+
+                for (let [continent, count] of Object.entries(value)) {
+                    if (count > 0) {
+                        graph.links.push({ "source": regionState[0], "target": regionState[1], "value": count, "continent": continent });
+                    }
+                }
+            }
+
+            for (let i = 0; i < graph.links.length; i++) {
+                graph.links[i].source = nodelist.indexOf(graph.links[i].source);
+                graph.links[i].target = nodelist.indexOf(graph.links[i].target);
+            }
+
+            processed_graph = sankey(graph);
+
+
+            // color
+            const colorScale = continentsColors;
+
+            // create links
+            var link = map.append("g").selectAll(".link")
+                .data(processed_graph.links)
+                .enter().append("path")
+                .attr("class", "link")
+                .attr("d", d3.sankeyLinkHorizontal())
+                .style("stroke", d => colorScale(d.continent))
+                .attr("stroke-width", d => Math.max(1, d.width))
+                .on('mouseover', mouseEntersLink)
+                .on('mouseout', mouseLeavesLink);
+
+            // create nodes
+            var node = map.append("g").selectAll(".node")
+                .data(processed_graph.nodes)
+                .enter().append("g")
+                .attr("class", "node")
+                .attr("transform", "translate(" + -margin2.left + "," + -margin2.top + ")");
+
+            node.append("rect")
+                .attr("height", d => d.y1 - d.y0)
+                .attr("width", sankey.nodeWidth())
+                .style("fill", "black")
+                .attr("x", d => d.x0 + margin2.right)
+                .attr("y", d => d.y0 + margin2.top)
+                .style("opacity", .5)
+                .style("stroke", "black");
+
+            node.append("text")
+                .attr("dy", 6)
+                .attr("text-anchor", "end")
+                .attr("text-anchor", "center")
+                .attr("x", d => d.x0 + margin2.right - 6)
+                .attr("y", d => (d.y1 + d.y0 + margin2.top) / 2)
+                .text(d => d.name)
+                .filter(d => d.x0 < (width2 / 2))
+                .attr("x", d => d.x1 + margin2.right + 6);
+
+            // mouseover links
+            let tooltipWidth = 150;
+            let tooltipHeight = 40;
+
+            let tooltip = map.append("g")
+                .attr("class", "tooltip")
+                .attr("visibility", "hidden");
+            tooltip.append("rect")
+                .attr("stroke", "black")
+                .attr("stroke-width", 3)
+                .attr("opacity", 0.7)
+                .attr("stroke-opacity", 0.3)
+                .attr("x", -tooltipWidth / 2.0)
+                .attr("y", 0)
+                .attr("width", tooltipWidth)
+                .attr("height", tooltipHeight)
+
+            let txt = tooltip.append("text")
+                .style("fill", "black")
+                .attr("text-anchor", "middle")
+                .attr("alignment-baseline", "hanging")
+                .attr("x", 0)
+                .attr("y", 2);
+
+            let txt2 = tooltip.append("text")
+                .style("fill", "black")
+                .attr("text-anchor", "middle")
+                .attr("alignment-baseline", "hanging")
+                .attr("x", 0)
+                .attr("y", 22);
+
+            function mouseEntersLink() {
+                tooltip.style("visibility", "visible");
+                let link = d3.select(this);
+                let linkTarget = link.datum().target.name;
+                let linkSource = link.datum().continent;
+                let linkCount = link.datum().value;
+                txt.text(linkSource + " to " + linkTarget);
+                txt2.text(linkCount);
+
+
+                let xPos = (link.datum().target.x0 + link.datum().source.x0) / 2
+                let yPos = (link.datum().y0 + link.datum().y1) / 2
+
+                tooltip.attr("transform", `translate(${xPos},${yPos})`);
+
+                tooltip.attr("fill", d => colorScale(link.datum().continent));
+
+                link.style("stroke", d => colorScale(link.datum().continent))
+                link.style("stroke-opacity", 0.7)
+
+            }
+            function mouseLeavesLink() {
+                tooltip.style("visibility", "hidden");
+                let link = d3.select(this);
+                link.style("stroke-opacity", 0.4)
+            }
+
+            // zoom + pan
+            var plotZoom = d3.zoom().on("zoom", plotZoomed2)
+                .scaleExtent([1, 15])
+                .translateExtent([[0, 0], [width2, height2]]);
+
+            map.call(plotZoom);
+
+            function plotZoomed2(event) {
+                map.attr("transform", event.transform);
+            }
+        };
+        requestData();
+    </script>
+</body>
+
+</html>
