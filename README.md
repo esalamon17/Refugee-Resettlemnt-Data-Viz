@@ -1,5 +1,7 @@
 Data Visualization project contextualizing periods of refugee resettlement in the US since 1975. 
 
+Working project: https://esalamon17.github.io/refugee-resettlement/
+
 Group Project for INFO 3300 at Cornell University.
 
 Stigma surrounding refugees and migrants is a very present aspect of American politics.
